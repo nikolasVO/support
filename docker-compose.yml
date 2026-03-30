@@ -17,8 +17,6 @@ services:
       POSTGRES_DB: support_db
       POSTGRES_USER: support
       POSTGRES_PASSWORD: support
-    ports:
-      - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -30,8 +28,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
 
 volumes:
   pg_data:
