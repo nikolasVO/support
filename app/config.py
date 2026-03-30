@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
     ticket_id_offset: int = Field(default=100000, alias="TICKET_ID_OFFSET")
+    staff_name_map: str | None = Field(default=None, alias="STAFF_NAME_MAP")
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO", alias="LOG_LEVEL")
     staff_seed_ids: str | None = Field(default=None, alias="STAFF_SEED_IDS")
@@ -31,6 +32,24 @@ class Settings(BaseSettings):
                 continue
             result.append(int(value))
         return result
+
+    @property
+    def parsed_staff_name_map(self) -> dict[int, str]:
+        if not self.staff_name_map:
+            return {}
+
+        mapping: dict[int, str] = {}
+        for raw_pair in self.staff_name_map.split(","):
+            pair = raw_pair.strip()
+            if not pair or ":" not in pair:
+                continue
+            staff_id_raw, name_raw = pair.split(":", 1)
+            staff_id = staff_id_raw.strip()
+            display_name = name_raw.strip()
+            if not staff_id or not display_name:
+                continue
+            mapping[int(staff_id)] = display_name
+        return mapping
 
 
 @lru_cache(maxsize=1)

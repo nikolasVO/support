@@ -27,11 +27,18 @@ def ticket_actions_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def assign_staff_keyboard(ticket_id: int, staff_users: list[StaffUser]) -> InlineKeyboardMarkup:
+def assign_staff_keyboard(
+    ticket_id: int,
+    staff_users: list[StaffUser],
+    staff_name_map: dict[int, str] | None = None,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    name_map = staff_name_map or {}
     for staff in staff_users:
+        display_name = name_map.get(staff.telegram_id)
+        button_text = f"{display_name} • {staff.telegram_id}" if display_name else f"{staff.role.value} • {staff.telegram_id}"
         builder.button(
-            text=f"{staff.role.value} • {staff.telegram_id}",
+            text=button_text,
             callback_data=f"assign:{ticket_id}:{staff.telegram_id}",
         )
     builder.adjust(1)

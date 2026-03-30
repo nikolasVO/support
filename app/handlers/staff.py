@@ -25,11 +25,15 @@ def build_staff_router(
     staff_service: StaffService,
 ) -> Router:
     router = Router(name="staff-router")
+    staff_name_map = settings.parsed_staff_name_map
 
     def staff_label(user_id: int, username: str | None) -> str:
         if username:
             return f"@{username}"
         return str(user_id)
+
+    def staff_display_name(staff_id: int) -> str:
+        return staff_name_map.get(staff_id, str(staff_id))
 
     async def is_authorized(user_id: int) -> bool:
         return await staff_service.is_staff(user_id)
@@ -199,7 +203,7 @@ def build_staff_router(
                     return
                 await query.message.answer(
                     f"Выберите сотрудника для тикета {ticket_label(ticket_id, settings.ticket_id_offset)}:",
-                    reply_markup=assign_staff_keyboard(ticket_id, staff_users),
+                    reply_markup=assign_staff_keyboard(ticket_id, staff_users, staff_name_map),
                 )
                 await query.answer()
                 return
@@ -261,7 +265,8 @@ def build_staff_router(
             return
 
         await query.message.answer(
-            f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} назначен сотруднику {assignee_id} "
+            f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} назначен сотруднику "
+            f"{staff_display_name(assignee_id)} "
             f"по запросу {staff_label(query.from_user.id, query.from_user.username)}."
         )
         await query.answer("Назначено")
