@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
     ticket_id_offset: int = Field(default=100000, alias="TICKET_ID_OFFSET")
+    waiting_user_timeout_hours: int = Field(default=48, alias="WAITING_USER_TIMEOUT_HOURS")
+    autoclose_check_interval_seconds: int = Field(default=120, alias="AUTOCLOSE_CHECK_INTERVAL_SECONDS")
     staff_name_map: str | None = Field(default=None, alias="STAFF_NAME_MAP")
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO", alias="LOG_LEVEL")

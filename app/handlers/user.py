@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import logging
 
 from aiogram import F, Router
@@ -11,7 +12,7 @@ from app.bot.formatters import format_ticket_created, format_ticket_update, tick
 from app.bot.keyboards import category_keyboard, ticket_actions_keyboard
 from app.config import Settings
 from app.constants import CATEGORY_BY_KEY
-from app.services.ticket_service import TicketService
+from app.services.ticket_service import TicketAccessDeniedError, TicketNotFoundError, TicketService
 from app.states.user import UserTicketState
 from app.utils.content import extract_message_text
 
@@ -20,6 +21,68 @@ logger = logging.getLogger(__name__)
 
 def build_user_router(settings: Settings, ticket_service: TicketService) -> Router:
     router = Router(name="user-router")
+
+    @router.callback_query(F.data.startswith("user_ticket:"))
+    async def user_ticket_feedback_handler(query: CallbackQuery) -> None:
+        if not query.from_user:
+            return
+        if not query.message or query.message.chat.type != "private":
+            await query.answer()
+            return
+
+        parts = query.data.split(":")
+        if len(parts) != 3:
+            await query.answer("Некорректная кнопка", show_alert=True)
+            return
+
+        _, action, ticket_id_raw = parts
+        if not ticket_id_raw.isdigit():
+            await query.answer("Некорректный тикет", show_alert=True)
+            return
+        ticket_id = int(ticket_id_raw)
+
+        ticket = await ticket_service.get_ticket(ticket_id)
+        if ticket is None or ticket.user_id != query.from_user.id:
+            await query.answer("Тикет не найден", show_alert=True)
+            return
+
+        ticket_public_label = ticket_label(ticket.id, settings.ticket_id_offset)
+
+        if action == "resolved":
+            try:
+                await ticket_service.close_ticket_by_user(ticket_id=ticket.id, user_id=query.from_user.id)
+            except TicketNotFoundError:
+                await query.answer("Тикет не найден", show_alert=True)
+                return
+            except TicketAccessDeniedError:
+                await query.answer("Нет доступа к тикету", show_alert=True)
+                return
+
+            with suppress(Exception):
+                await query.message.edit_reply_markup(reply_markup=None)
+
+            await query.answer("Спасибо! Тикет закрыт.")
+            await query.message.answer(
+                f"Спасибо за ответ. Тикет {ticket_public_label} закрыт."
+            )
+            await query.message.bot.send_message(
+                chat_id=settings.support_group_id,
+                text=(
+                    f"✅ Тикет {ticket_public_label} закрыт пользователем "
+                    f"{'@' + query.from_user.username if query.from_user.username else query.from_user.id}."
+                ),
+            )
+            return
+
+        if action == "not_resolved":
+            await query.answer()
+            await query.message.answer(
+                "Понял. Напишите одним сообщением, что именно осталось нерешенным, "
+                "и мы продолжим работу по тикету."
+            )
+            return
+
+        await query.answer("Неизвестное действие", show_alert=True)
 
     @router.message(CommandStart(), F.chat.type == "private")
     async def start_handler(message: Message, state: FSMContext) -> None:

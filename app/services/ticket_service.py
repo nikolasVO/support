@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,6 +18,10 @@ class TicketNotFoundError(Exception):
 
 
 class TicketClosedError(Exception):
+    pass
+
+
+class TicketAccessDeniedError(Exception):
     pass
 
 
@@ -255,6 +259,56 @@ class TicketService:
             )
             await session.commit()
             return ticket
+
+    async def close_ticket_by_user(self, ticket_id: int, user_id: int) -> Ticket:
+        async with self._session_factory() as session:
+            ticket_repo = TicketRepository(session)
+            message_repo = MessageRepository(session)
+
+            ticket = await ticket_repo.get_by_id(ticket_id)
+            if ticket is None:
+                raise TicketNotFoundError
+            if ticket.user_id != user_id:
+                raise TicketAccessDeniedError
+            if ticket.status == TicketStatus.CLOSED:
+                return ticket
+
+            ticket.status = TicketStatus.CLOSED
+            ticket.closed_by = None
+            ticket.updated_at = self._utc_now()
+            await message_repo.create(
+                ticket_id=ticket.id,
+                sender_type=SenderType.SYSTEM,
+                sender_id=user_id,
+                text=f"TICKET_CLOSED_BY_USER:{user_id}",
+                message_type=MessageType.INTERNAL,
+            )
+            await session.commit()
+            return ticket
+
+    async def auto_close_waiting_user_tickets(self, timeout_hours: int, batch_size: int = 200) -> list[Ticket]:
+        cutoff = self._utc_now() - timedelta(hours=timeout_hours)
+        async with self._session_factory() as session:
+            ticket_repo = TicketRepository(session)
+            message_repo = MessageRepository(session)
+            tickets = await ticket_repo.list_waiting_user_expired(cutoff=cutoff, limit=batch_size)
+            if not tickets:
+                return []
+
+            now = self._utc_now()
+            for ticket in tickets:
+                ticket.status = TicketStatus.CLOSED
+                ticket.closed_by = None
+                ticket.updated_at = now
+                await message_repo.create(
+                    ticket_id=ticket.id,
+                    sender_type=SenderType.SYSTEM,
+                    sender_id=None,
+                    text=f"TICKET_AUTO_CLOSED_TIMEOUT:{timeout_hours}h",
+                    message_type=MessageType.INTERNAL,
+                )
+            await session.commit()
+            return tickets
 
     async def list_active_tickets(self, limit: int = 50) -> list[Ticket]:
         async with self._session_factory() as session:

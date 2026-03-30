@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,6 +74,19 @@ class TicketRepository:
             select(Ticket)
             .where(Ticket.assigned_to == assignee_id)
             .order_by(Ticket.updated_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def list_waiting_user_expired(self, cutoff: datetime, limit: int = 200) -> list[Ticket]:
+        query = (
+            select(Ticket)
+            .where(
+                Ticket.status == TicketStatus.WAITING_USER,
+                Ticket.updated_at <= cutoff,
+            )
+            .order_by(Ticket.updated_at.asc())
             .limit(limit)
         )
         result = await self.session.execute(query)

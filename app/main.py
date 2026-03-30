@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
-from sqlalchemy import text
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat
+from sqlalchemy import text
 
+from app.bot.formatters import ticket_label
 from app.config import get_settings
 from app.db.base import Base
 from app.db.session import build_engine, build_session_factory
@@ -62,6 +64,39 @@ async def set_bot_commands(bot: Bot, support_group_id: int) -> None:
     )
 
 
+async def waiting_user_autoclose_worker(bot: Bot, settings, ticket_service: TicketService) -> None:
+    timeout_hours = max(1, settings.waiting_user_timeout_hours)
+    interval_seconds = max(30, settings.autoclose_check_interval_seconds)
+
+    while True:
+        try:
+            closed_tickets = await ticket_service.auto_close_waiting_user_tickets(timeout_hours=timeout_hours)
+            for ticket in closed_tickets:
+                public_ticket = ticket_label(ticket.id, settings.ticket_id_offset)
+                await bot.send_message(
+                    chat_id=settings.support_group_id,
+                    text=(
+                        f"⏱️ Тикет {public_ticket} автоматически закрыт: "
+                        f"пользователь не ответил в течение {timeout_hours} часов."
+                    ),
+                )
+                with suppress(Exception):
+                    await bot.send_message(
+                        chat_id=ticket.user_id,
+                        text=(
+                            f"Тикет {public_ticket} автоматически закрыт, так как ответ от вас "
+                            f"не поступил в течение {timeout_hours} часов.\n"
+                            "Если проблема актуальна, создайте новое обращение через /start."
+                        ),
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Auto-close worker failed")
+
+        await asyncio.sleep(interval_seconds)
+
+
 async def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -95,11 +130,15 @@ async def main() -> None:
     dp.include_router(build_staff_router(settings=settings, ticket_service=ticket_service, staff_service=staff_service))
 
     await set_bot_commands(bot, settings.support_group_id)
+    autoclose_task = asyncio.create_task(waiting_user_autoclose_worker(bot, settings, ticket_service))
 
     logger.info("Support bot started")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        autoclose_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await autoclose_task
         await bot.session.close()
         await engine.dispose()
 

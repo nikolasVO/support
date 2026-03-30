@@ -43,3 +43,11 @@ def assign_staff_keyboard(
         )
     builder.adjust(1)
     return builder.as_markup()
+
+
+def user_resolution_keyboard(ticket_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Проблема решена — закрыть тикет", callback_data=f"user_ticket:resolved:{ticket_id}")
+    builder.button(text="❌ Проблема не решена", callback_data=f"user_ticket:not_resolved:{ticket_id}")
+    builder.adjust(1)
+    return builder.as_markup()

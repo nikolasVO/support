@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, ForceReply, Message
 
 from app.bot.formatters import format_assignee, format_date, format_last_message, format_user_ref, ticket_label
-from app.bot.keyboards import assign_staff_keyboard
+from app.bot.keyboards import assign_staff_keyboard, user_resolution_keyboard
 from app.config import Settings
 from app.services.staff_service import StaffService
 from app.services.ticket_service import TicketClosedError, TicketNotFoundError, TicketService
@@ -301,8 +301,10 @@ def build_staff_router(
                 chat_id=ticket.user_id,
                 text=(
                     f"💬 Ответ поддержки по тикету "
-                    f"{ticket_label(ticket.id, settings.ticket_id_offset)}:\n{message.text}"
+                    f"{ticket_label(ticket.id, settings.ticket_id_offset)}:\n{message.text}\n\n"
+                    "Проблема решена?"
                 ),
+                reply_markup=user_resolution_keyboard(ticket.id),
             )
         except TelegramForbiddenError:
             logger.warning(
