@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -49,6 +49,38 @@ def build_staff_router(
         if ticket is None and raw_id > settings.ticket_id_offset:
             ticket = await ticket_service.get_ticket(raw_id - settings.ticket_id_offset)
         return ticket
+
+    async def notify_user_about_staff_closed_ticket(bot: Bot, ticket_id: int, user_id: int) -> bool:
+        public_id = ticket_label(ticket_id, settings.ticket_id_offset)
+        text = (
+            f"✅ Тикет {public_id} закрыт сотрудником поддержки.\n\n"
+            "Спасибо, что обратились к нам. Если вопрос снова станет актуален "
+            "или появится новый, просто отправьте /start."
+        )
+        try:
+            await bot.send_message(chat_id=user_id, text=text)
+            return True
+        except TelegramForbiddenError:
+            logger.warning(
+                "Could not notify user about ticket close: blocked bot. ticket_id=%s user_id=%s",
+                ticket_id,
+                user_id,
+            )
+            return False
+        except TelegramBadRequest:
+            logger.exception(
+                "Telegram rejected close-notification message. ticket_id=%s user_id=%s",
+                ticket_id,
+                user_id,
+            )
+            return False
+        except Exception:
+            logger.exception(
+                "Unexpected error while notifying user about closed ticket. ticket_id=%s user_id=%s",
+                ticket_id,
+                user_id,
+            )
+            return False
 
     async def ensure_staff_message_access(message: Message) -> bool:
         if message.chat.id != settings.support_group_id:
@@ -230,7 +262,7 @@ def build_staff_router(
             return
 
         try:
-            await ticket_service.close_ticket(ticket_id=ticket.id, closed_by=message.from_user.id)
+            closed_ticket = await ticket_service.close_ticket(ticket_id=ticket.id, closed_by=message.from_user.id)
         except TicketNotFoundError:
             await message.answer("Тикет не найден.")
             return
@@ -240,9 +272,15 @@ def build_staff_router(
             )
             return
 
+        user_notified = await notify_user_about_staff_closed_ticket(
+            bot=message.bot,
+            ticket_id=closed_ticket.id,
+            user_id=closed_ticket.user_id,
+        )
         await message.answer(
             f"Тикет {ticket_label(ticket.id, settings.ticket_id_offset)} закрыт "
             f"{staff_label(message.from_user.id, message.from_user.username)}."
+            + ("" if user_notified else "\n⚠️ Не удалось отправить уведомление пользователю.")
         )
 
     @router.callback_query(F.data.startswith("ticket:"))
@@ -307,10 +345,24 @@ def build_staff_router(
                 return
 
             if action == "close":
-                await ticket_service.close_ticket(ticket_id=ticket_id, closed_by=query.from_user.id)
+                current_ticket = await ticket_service.get_ticket(ticket_id=ticket_id)
+                if current_ticket is None:
+                    await query.answer("Тикет не найден", show_alert=True)
+                    return
+                if current_ticket.status.value == "CLOSED":
+                    await query.answer("Тикет уже закрыт", show_alert=True)
+                    return
+
+                closed_ticket = await ticket_service.close_ticket(ticket_id=ticket_id, closed_by=query.from_user.id)
+                user_notified = await notify_user_about_staff_closed_ticket(
+                    bot=query.message.bot,
+                    ticket_id=closed_ticket.id,
+                    user_id=closed_ticket.user_id,
+                )
                 await query.message.answer(
                     f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} "
                     f"закрыт {staff_label(query.from_user.id, query.from_user.username)}"
+                    + ("" if user_notified else "\n⚠️ Не удалось отправить уведомление пользователю.")
                 )
                 await query.answer("Тикет закрыт")
                 return
