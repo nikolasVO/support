@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
@@ -37,6 +38,17 @@ def build_staff_router(
 
     async def is_authorized(user_id: int) -> bool:
         return await staff_service.is_staff(user_id)
+
+    def split_message_chunks(text: str, max_length: int = 3500) -> list[str]:
+        if len(text) <= max_length:
+            return [text]
+        return [text[i : i + max_length] for i in range(0, len(text), max_length)]
+
+    async def resolve_ticket_by_any_id(raw_id: int):
+        ticket = await ticket_service.get_ticket(raw_id)
+        if ticket is None and raw_id > settings.ticket_id_offset:
+            ticket = await ticket_service.get_ticket(raw_id - settings.ticket_id_offset)
+        return ticket
 
     async def ensure_staff_message_access(message: Message) -> bool:
         if message.chat.id != settings.support_group_id:
@@ -146,6 +158,92 @@ def build_staff_router(
                 f"{format_user_ref(ticket.username, ticket.user_id)}"
             )
         await message.answer("\n".join(lines))
+
+    @router.message(F.chat.id == settings.support_group_id, F.text.regexp(r"^/chat_(\d+)(?:@[\w_]+)?$"))
+    async def chat_ticket_history_handler(message: Message) -> None:
+        if not await ensure_staff_message_access(message):
+            return
+
+        command_text = (message.text or "").strip()
+        match = re.match(r"^/chat_(\d+)(?:@[\w_]+)?$", command_text)
+        if not match:
+            await message.answer("Формат команды: /chat_<id_тикета>")
+            return
+
+        requested_ticket_id = int(match.group(1))
+        ticket = await resolve_ticket_by_any_id(requested_ticket_id)
+        if ticket is None:
+            await message.answer("Тикет не найден.")
+            return
+
+        try:
+            history = await ticket_service.get_ticket_chat_history(ticket_id=ticket.id)
+        except TicketNotFoundError:
+            await message.answer("Тикет не найден.")
+            return
+
+        header = (
+            f"🧾 История {ticket_label(history.ticket.id, settings.ticket_id_offset)}\n"
+            f"👤 Пользователь: {format_user_ref(history.ticket.username, history.ticket.user_id)}\n"
+            f"📂 Категория: {history.ticket.category}\n"
+            f"📊 Статус: {history.ticket.status.value}\n"
+        )
+
+        if not history.messages:
+            await message.answer(f"{header}\n\nСообщений пока нет.")
+            return
+
+        lines = [header, ""]
+        for item in history.messages:
+            sender_id = item.sender_id if item.sender_id is not None else "-"
+            lines.append(
+                f"[{format_date(item.created_at)}] {item.sender_type.value}:{sender_id} [{item.type.value}]"
+            )
+            lines.append(item.text)
+            lines.append("")
+
+        payload = "\n".join(lines).strip()
+        for chunk in split_message_chunks(payload):
+            await message.answer(chunk)
+
+    @router.message(F.chat.id == settings.support_group_id, F.text.regexp(r"^/close_ticket_(\d+)(?:@[\w_]+)?$"))
+    async def close_ticket_command_handler(message: Message) -> None:
+        if not await ensure_staff_message_access(message):
+            return
+
+        command_text = (message.text or "").strip()
+        match = re.match(r"^/close_ticket_(\d+)(?:@[\w_]+)?$", command_text)
+        if not match:
+            await message.answer("Формат команды: /close_ticket_<id_тикета>")
+            return
+
+        requested_ticket_id = int(match.group(1))
+        ticket = await resolve_ticket_by_any_id(requested_ticket_id)
+        if ticket is None:
+            await message.answer("Тикет не найден.")
+            return
+
+        if ticket.status.value == "CLOSED":
+            await message.answer(
+                f"Тикет {ticket_label(ticket.id, settings.ticket_id_offset)} уже закрыт."
+            )
+            return
+
+        try:
+            await ticket_service.close_ticket(ticket_id=ticket.id, closed_by=message.from_user.id)
+        except TicketNotFoundError:
+            await message.answer("Тикет не найден.")
+            return
+        except TicketClosedError:
+            await message.answer(
+                f"Тикет {ticket_label(ticket.id, settings.ticket_id_offset)} уже закрыт."
+            )
+            return
+
+        await message.answer(
+            f"Тикет {ticket_label(ticket.id, settings.ticket_id_offset)} закрыт "
+            f"{staff_label(message.from_user.id, message.from_user.username)}."
+        )
 
     @router.callback_query(F.data.startswith("ticket:"))
     async def ticket_action_handler(query: CallbackQuery, state: FSMContext) -> None:

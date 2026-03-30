@@ -39,3 +39,14 @@ class MessageRepository:
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
+
+    async def list_for_ticket(self, ticket_id: int, limit: int | None = None) -> list[Message]:
+        query = (
+            select(Message)
+            .where(Message.ticket_id == ticket_id)
+            .order_by(Message.created_at.asc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())

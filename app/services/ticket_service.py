@@ -31,6 +31,12 @@ class InProgressTicketView:
     last_message: Message | None
 
 
+@dataclass(slots=True)
+class TicketChatHistory:
+    ticket: Ticket
+    messages: list[Message]
+
+
 class TicketService:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -335,3 +341,13 @@ class TicketService:
         async with self._session_factory() as session:
             ticket_repo = TicketRepository(session)
             return await ticket_repo.list_by_assignee(assignee_id=assignee_id, limit=limit)
+
+    async def get_ticket_chat_history(self, ticket_id: int, limit: int | None = None) -> TicketChatHistory:
+        async with self._session_factory() as session:
+            ticket_repo = TicketRepository(session)
+            message_repo = MessageRepository(session)
+            ticket = await ticket_repo.get_by_id(ticket_id)
+            if ticket is None:
+                raise TicketNotFoundError
+            messages = await message_repo.list_for_ticket(ticket_id=ticket_id, limit=limit)
+            return TicketChatHistory(ticket=ticket, messages=messages)

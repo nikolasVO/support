@@ -58,6 +58,8 @@ async def set_bot_commands(bot: Bot, support_group_id: int) -> None:
             BotCommand(command="in_progress", description="Тикеты в работе"),
             BotCommand(command="closed", description="Последние закрытые тикеты"),
             BotCommand(command="my", description="Мои тикеты"),
+            BotCommand(command="chat", description="История тикета: /chat_100123"),
+            BotCommand(command="close_ticket", description="Закрыть тикет: /close_ticket_100123"),
             BotCommand(command="cancel", description="Отменить текущее действие"),
         ],
         scope=BotCommandScopeChat(chat_id=support_group_id),
