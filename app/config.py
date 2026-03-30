@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     support_group_id: int = Field(..., alias="SUPPORT_GROUP_ID")
     database_url: str = Field(..., alias="DATABASE_URL")
     redis_url: str | None = Field(default=None, alias="REDIS_URL")
+    ticket_id_offset: int = Field(default=100000, alias="TICKET_ID_OFFSET")
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(default="INFO", alias="LOG_LEVEL")
     staff_seed_ids: str | None = Field(default=None, alias="STAFF_SEED_IDS")

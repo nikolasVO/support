@@ -7,7 +7,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.bot.formatters import format_ticket_created, format_ticket_update
+from app.bot.formatters import format_ticket_created, format_ticket_update, ticket_label
 from app.bot.keyboards import category_keyboard, ticket_actions_keyboard
 from app.config import Settings
 from app.constants import CATEGORY_BY_KEY
@@ -27,7 +27,7 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
         if existing_ticket:
             await state.clear()
             await message.answer(
-                f"У вас уже есть открытый тикет #{existing_ticket.id}. "
+                f"У вас уже есть открытый тикет {ticket_label(existing_ticket.id, settings.ticket_id_offset)}. "
                 "Напишите сообщение в этот чат, и я добавлю его в текущий тикет."
             )
             return
@@ -59,7 +59,8 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
             await query.answer("У вас уже есть активный тикет", show_alert=True)
             if query.message:
                 await query.message.answer(
-                    f"Активный тикет #{existing_ticket.id} уже открыт. Просто отправьте следующее сообщение."
+                    f"Активный тикет {ticket_label(existing_ticket.id, settings.ticket_id_offset)} уже открыт. "
+                    "Просто отправьте следующее сообщение."
                 )
             return
 
@@ -90,7 +91,7 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
 
         if not created:
             await message.answer(
-                f"У вас уже есть открытый тикет #{ticket.id}. "
+                f"У вас уже есть открытый тикет {ticket_label(ticket.id, settings.ticket_id_offset)}. "
                 "Добавил ваше сообщение в текущий диалог."
             )
             await ticket_service.add_client_message_to_open_ticket(
@@ -101,12 +102,13 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
             return
 
         await message.answer(
-            f"Тикет #{ticket.id} создан. Мы получили ваше обращение и скоро ответим."
+            f"Тикет {ticket_label(ticket.id, settings.ticket_id_offset)} создан. "
+            "Мы получили ваше обращение и скоро ответим."
         )
 
         group_notice = await message.bot.send_message(
             chat_id=settings.support_group_id,
-            text=format_ticket_created(ticket=ticket, text=user_text),
+            text=format_ticket_created(ticket=ticket, text=user_text, offset=settings.ticket_id_offset),
             reply_markup=ticket_actions_keyboard(ticket.id),
         )
 
@@ -138,7 +140,7 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
 
         group_notice = await message.bot.send_message(
             chat_id=settings.support_group_id,
-            text=format_ticket_update(ticket=ticket, text=user_text),
+            text=format_ticket_update(ticket=ticket, text=user_text, offset=settings.ticket_id_offset),
             reply_markup=ticket_actions_keyboard(ticket.id),
         )
 
@@ -153,6 +155,8 @@ def build_user_router(settings: Settings, ticket_service: TicketService) -> Rout
             except Exception:
                 logger.exception("Failed to copy media update for ticket #%s", ticket.id)
 
-        await message.answer(f"Сообщение добавлено в тикет #{ticket.id}.")
+        await message.answer(
+            f"Сообщение добавлено в тикет {ticket_label(ticket.id, settings.ticket_id_offset)}."
+        )
 
     return router

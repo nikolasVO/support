@@ -15,9 +15,17 @@ def format_assignee(telegram_id: int | None) -> str:
     return str(telegram_id) if telegram_id else "не назначен"
 
 
-def format_ticket_created(ticket: Ticket, text: str) -> str:
+def public_ticket_id(ticket_id: int, offset: int) -> int:
+    return ticket_id + offset
+
+
+def ticket_label(ticket_id: int, offset: int) -> str:
+    return f"#{public_ticket_id(ticket_id, offset)}"
+
+
+def format_ticket_created(ticket: Ticket, text: str, offset: int) -> str:
     return (
-        f"📌 Новый тикет #{ticket.id}\n"
+        f"📌 Новый тикет {ticket_label(ticket.id, offset)}\n"
         f"👤 Пользователь: {format_user_ref(ticket.username, ticket.user_id)}\n"
         f"📂 Категория: {ticket.category}\n"
         f"📊 Статус: {ticket.status.value}\n\n"
@@ -25,9 +33,9 @@ def format_ticket_created(ticket: Ticket, text: str) -> str:
     )
 
 
-def format_ticket_update(ticket: Ticket, text: str) -> str:
+def format_ticket_update(ticket: Ticket, text: str, offset: int) -> str:
     return (
-        f"📩 Новое сообщение в тикете #{ticket.id}\n"
+        f"📩 Новое сообщение в тикете {ticket_label(ticket.id, offset)}\n"
         f"👤 {format_user_ref(ticket.username, ticket.user_id)}\n\n"
         f"{text}"
     )
