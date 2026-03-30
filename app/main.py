@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.storage.redis import RedisStorage
+from sqlalchemy import text
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat
 
 from app.config import get_settings
@@ -24,6 +25,24 @@ logger = logging.getLogger(__name__)
 async def setup_database(engine) -> None:
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+
+
+async def wait_for_database(engine, attempts: int = 30, delay_seconds: int = 2) -> None:
+    for attempt in range(1, attempts + 1):
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+            return
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            logger.warning(
+                "Database is not reachable yet (attempt %s/%s): %s",
+                attempt,
+                attempts,
+                exc,
+            )
+            await asyncio.sleep(delay_seconds)
 
 
 async def set_bot_commands(bot: Bot, support_group_id: int) -> None:
@@ -49,6 +68,7 @@ async def main() -> None:
 
     engine = build_engine(settings.database_url)
     session_factory = build_session_factory(engine)
+    await wait_for_database(engine)
     await setup_database(engine)
 
     ticket_service = TicketService(session_factory)
