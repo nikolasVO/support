@@ -38,6 +38,11 @@ def build_staff_router(
         if message.chat.id != settings.support_group_id:
             return False
         if not message.from_user:
+            if message.sender_chat:
+                await message.answer(
+                    "Не могу определить сотрудника: сообщение отправлено анонимно от имени группы/канала. "
+                    "Отключите анонимный режим администратора и повторите."
+                )
             return False
         if not await is_authorized(message.from_user.id):
             await message.answer("Команда доступна только сотрудникам поддержки.")
@@ -170,7 +175,7 @@ def build_staff_router(
                 await query.message.answer(
                     f"Введите ответ пользователю для тикета {ticket_label(ticket_id, settings.ticket_id_offset)}. "
                     "Ответьте реплаем на это сообщение. Для отмены: /cancel",
-                    reply_markup=ForceReply(selective=True),
+                    reply_markup=ForceReply(selective=False),
                 )
                 await query.answer()
                 return
@@ -182,7 +187,7 @@ def build_staff_router(
                     f"Введите внутренний комментарий для тикета "
                     f"{ticket_label(ticket_id, settings.ticket_id_offset)}. "
                     "Ответьте реплаем на это сообщение. Для отмены: /cancel",
-                    reply_markup=ForceReply(selective=True),
+                    reply_markup=ForceReply(selective=False),
                 )
                 await query.answer()
                 return
