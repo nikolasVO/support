@@ -84,6 +84,12 @@ async def main() -> None:
         token=settings.bot_token,
         default=DefaultBotProperties(parse_mode=None),
     )
+
+    webhook_info = await bot.get_webhook_info()
+    if webhook_info.url:
+        logger.warning("Webhook is configured (%s), removing for polling mode", webhook_info.url)
+        await bot.delete_webhook(drop_pending_updates=False)
+
     dp = Dispatcher(storage=storage)
     dp.include_router(build_user_router(settings=settings, ticket_service=ticket_service))
     dp.include_router(build_staff_router(settings=settings, ticket_service=ticket_service, staff_service=staff_service))
