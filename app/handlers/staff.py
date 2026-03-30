@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, ForceReply, Message
 
-from app.bot.formatters import format_assignee, format_date, format_last_message, format_user_ref
+from app.bot.formatters import format_assignee, format_date, format_last_message, format_user_ref, ticket_label
 from app.bot.keyboards import assign_staff_keyboard
 from app.config import Settings
 from app.services.staff_service import StaffService
 from app.services.ticket_service import TicketClosedError, TicketNotFoundError, TicketService
 from app.states.staff import StaffActionState
 from app.utils.content import extract_message_text
+
+logger = logging.getLogger(__name__)
 
 
 def build_staff_router(
@@ -71,7 +76,8 @@ def build_staff_router(
         lines = ["📌 Открытые тикеты:"]
         for ticket in tickets:
             lines.append(
-                f"#{ticket.id} | {ticket.category} | {format_user_ref(ticket.username, ticket.user_id)} | "
+                f"{ticket_label(ticket.id, settings.ticket_id_offset)} | {ticket.category} | "
+                f"{format_user_ref(ticket.username, ticket.user_id)} | "
                 f"{ticket.status.value} | {format_assignee(ticket.assigned_to)}"
             )
         await message.answer("\n".join(lines))
@@ -89,7 +95,8 @@ def build_staff_router(
         lines = ["👤 Тикеты в работе:"]
         for item in tickets:
             lines.append(
-                f"#{item.ticket.id} | assigned: {format_assignee(item.ticket.assigned_to)} | "
+                f"{ticket_label(item.ticket.id, settings.ticket_id_offset)} | "
+                f"assigned: {format_assignee(item.ticket.assigned_to)} | "
                 f"{item.ticket.category} | {format_last_message(item.last_message)}"
             )
         await message.answer("\n".join(lines))
@@ -108,7 +115,8 @@ def build_staff_router(
         for ticket in tickets:
             closed_by = ticket.closed_by if ticket.closed_by else "неизвестно"
             lines.append(
-                f"#{ticket.id} | закрыт: {closed_by} | дата: {format_date(ticket.updated_at)}"
+                f"{ticket_label(ticket.id, settings.ticket_id_offset)} | закрыт: {closed_by} | "
+                f"дата: {format_date(ticket.updated_at)}"
             )
         await message.answer("\n".join(lines))
 
@@ -125,7 +133,7 @@ def build_staff_router(
         lines = ["📊 Ваши тикеты:"]
         for ticket in tickets:
             lines.append(
-                f"#{ticket.id} | {ticket.status.value} | {ticket.category} | "
+                f"{ticket_label(ticket.id, settings.ticket_id_offset)} | {ticket.status.value} | {ticket.category} | "
                 f"{format_user_ref(ticket.username, ticket.user_id)}"
             )
         await message.answer("\n".join(lines))
@@ -150,7 +158,8 @@ def build_staff_router(
             if action == "take":
                 await ticket_service.take_ticket(ticket_id=ticket_id, staff_id=query.from_user.id)
                 await query.message.answer(
-                    f"Тикет #{ticket_id} взял {staff_label(query.from_user.id, query.from_user.username)}"
+                    f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} "
+                    f"взял {staff_label(query.from_user.id, query.from_user.username)}"
                 )
                 await query.answer("Тикет взят")
                 return
@@ -159,8 +168,9 @@ def build_staff_router(
                 await state.set_state(StaffActionState.waiting_reply_text)
                 await state.update_data(ticket_id=ticket_id)
                 await query.message.answer(
-                    f"Введите ответ пользователю для тикета #{ticket_id}. "
-                    "Для отмены: /cancel"
+                    f"Введите ответ пользователю для тикета {ticket_label(ticket_id, settings.ticket_id_offset)}. "
+                    "Ответьте реплаем на это сообщение. Для отмены: /cancel",
+                    reply_markup=ForceReply(selective=True),
                 )
                 await query.answer()
                 return
@@ -169,8 +179,10 @@ def build_staff_router(
                 await state.set_state(StaffActionState.waiting_comment_text)
                 await state.update_data(ticket_id=ticket_id)
                 await query.message.answer(
-                    f"Введите внутренний комментарий для тикета #{ticket_id}. "
-                    "Для отмены: /cancel"
+                    f"Введите внутренний комментарий для тикета "
+                    f"{ticket_label(ticket_id, settings.ticket_id_offset)}. "
+                    "Ответьте реплаем на это сообщение. Для отмены: /cancel",
+                    reply_markup=ForceReply(selective=True),
                 )
                 await query.answer()
                 return
@@ -181,7 +193,7 @@ def build_staff_router(
                     await query.answer("Нет активных сотрудников", show_alert=True)
                     return
                 await query.message.answer(
-                    f"Выберите сотрудника для тикета #{ticket_id}:",
+                    f"Выберите сотрудника для тикета {ticket_label(ticket_id, settings.ticket_id_offset)}:",
                     reply_markup=assign_staff_keyboard(ticket_id, staff_users),
                 )
                 await query.answer()
@@ -190,7 +202,8 @@ def build_staff_router(
             if action == "close":
                 await ticket_service.close_ticket(ticket_id=ticket_id, closed_by=query.from_user.id)
                 await query.message.answer(
-                    f"Тикет #{ticket_id} закрыт {staff_label(query.from_user.id, query.from_user.username)}"
+                    f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} "
+                    f"закрыт {staff_label(query.from_user.id, query.from_user.username)}"
                 )
                 await query.answer("Тикет закрыт")
                 return
@@ -201,7 +214,8 @@ def build_staff_router(
                     await query.answer("Нет активных разработчиков для эскалации", show_alert=True)
                     return
                 await query.message.answer(
-                    f"Тикет #{ticket_id} эскалирован разработчику {result.assigned_to}."
+                    f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} "
+                    f"эскалирован разработчику {result.assigned_to}."
                 )
                 await query.answer("Эскалация выполнена")
                 return
@@ -242,7 +256,7 @@ def build_staff_router(
             return
 
         await query.message.answer(
-            f"Тикет #{ticket_id} назначен сотруднику {assignee_id} "
+            f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} назначен сотруднику {assignee_id} "
             f"по запросу {staff_label(query.from_user.id, query.from_user.username)}."
         )
         await query.answer("Назначено")
@@ -265,19 +279,47 @@ def build_staff_router(
         ticket = await ticket_service.get_ticket(ticket_id=ticket_id)
         if ticket is None:
             await state.clear()
-            await message.answer(f"Тикет #{ticket_id} не найден.")
+            await message.answer(f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} не найден.")
             return
         if ticket.status.value == "CLOSED":
             await state.clear()
-            await message.answer(f"Тикет #{ticket_id} уже закрыт.")
+            await message.answer(f"Тикет {ticket_label(ticket_id, settings.ticket_id_offset)} уже закрыт.")
             return
 
         try:
             await message.bot.send_message(
                 chat_id=ticket.user_id,
-                text=f"💬 Ответ поддержки по тикету #{ticket.id}:\n{message.text}",
+                text=(
+                    f"💬 Ответ поддержки по тикету "
+                    f"{ticket_label(ticket.id, settings.ticket_id_offset)}:\n{message.text}"
+                ),
             )
+        except TelegramForbiddenError:
+            logger.warning(
+                "User has blocked bot or restricted chat. ticket_id=%s user_id=%s",
+                ticket.id,
+                ticket.user_id,
+            )
+            await message.answer(
+                "Не удалось отправить сообщение пользователю: пользователь заблокировал бота."
+            )
+            return
+        except TelegramBadRequest:
+            logger.exception(
+                "Telegram rejected sending support reply. ticket_id=%s user_id=%s",
+                ticket.id,
+                ticket.user_id,
+            )
+            await message.answer(
+                "Не удалось отправить сообщение пользователю из-за ошибки Telegram."
+            )
+            return
         except Exception:
+            logger.exception(
+                "Unexpected error while sending support reply. ticket_id=%s user_id=%s",
+                ticket.id,
+                ticket.user_id,
+            )
             await message.answer(
                 "Не удалось отправить сообщение пользователю. Возможно, он заблокировал бота."
             )
@@ -299,7 +341,9 @@ def build_staff_router(
             return
 
         await state.clear()
-        await message.answer(f"Ответ отправлен пользователю в тикете #{ticket.id}.")
+        await message.answer(
+            f"Ответ отправлен пользователю в тикете {ticket_label(ticket.id, settings.ticket_id_offset)}."
+        )
 
     @router.message(F.chat.id == settings.support_group_id, StaffActionState.waiting_comment_text)
     async def process_comment_text_handler(message: Message, state: FSMContext) -> None:
@@ -330,6 +374,8 @@ def build_staff_router(
             return
 
         await state.clear()
-        await message.answer(f"Комментарий сохранен для тикета #{ticket_id}.")
+        await message.answer(
+            f"Комментарий сохранен для тикета {ticket_label(int(ticket_id), settings.ticket_id_offset)}."
+        )
 
     return router
