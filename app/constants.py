@@ -14,6 +14,7 @@ CATEGORIES: tuple[Category, ...] = (
     Category(key="payment", title="Проблема с оплатой"),
     Category(key="generation", title="Не работает генерация"),
     Category(key="reference", title="Референс не учтен"),
+    Category(key="creator_partnership", title="Я креатор! Партнерство💰"),
 )
 
 CATEGORY_BY_KEY = {category.key: category for category in CATEGORIES}
